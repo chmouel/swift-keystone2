@@ -1,4 +1,14 @@
-* Setup in proxy_server.conf is same as old module.
+* proxy-server.conf
+
+[pipeline:main]
+pipeline = catch_errors healthcheck cache keystone2 proxy-server
+
+[....]
+
+[filter:keystone2]
+use = egg:swiftkeystone2#keystone2
+keystone_admin_token = token_admin_set_in_your_keystone
+keystone_url = http://host:port/v2.0
 
 * keystone users:
 
