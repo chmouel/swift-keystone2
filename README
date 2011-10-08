@@ -1,0 +1,62 @@
+* Setup in proxy_server.conf is same as old module.
+
+* keystone users:
+
+    # user1 in group admin -- can manage the Account
+    # user2 in group lovers
+    # user3 in no groups
+    keystone-manage tenant add users
+    keystone-manage role add lovers
+    keystone-manage user add user1 secrete users
+    keystone-manage user add user2 secrete users
+    keystone-manage user add user3 secrete users
+    keystone-manage role grant Admin user1
+    keystone-manage role grant lovers user2
+
+* Create container with user2 == denied
+
+-$ /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user2 -K secrete post testcontainer                  
+Container POST failed: http://proxy01:8080/v1/AUTH_2/testcontainer 403 Forbidden
+
+* Create container with user1 == accepted (since in group admin)
+
+-$ /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user1 -K secrete post testcontainer
+
+* Set acl of the container to lovers :
+
+-$ /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user1 -K secrete post testcontainer -r 'lovers'
+
+* Read ACL:
+
+-$  /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user1 -K secrete stat testcontainer            
+  Account: AUTH_2
+Container: testcontainer
+  Objects: 0
+    Bytes: 0
+ Read ACL: lovers
+Write ACL: 
+  Sync To: 
+ Sync Key: 
+Accept-Ranges: bytes
+X-Trans-Id: txd0bdc6968a144f8a9a525628d4fe5dfc
+
+* Upload object with user1
+
+-$ /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user1 -K secrete upload testcontainer  /etc/issue
+
+* Read it with user2 (accepted since in group lovers)
+
+-$ /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user2 -K secrete download testcontainer etc/issue -o-
+Ubuntu 11.04 \n \l
+
+* Read it with user3 (not acccepted since not in group lovers) :
+
+-$ /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user3 -K secrete download testcontainer etc/issue -o-
+Object GET failed: http://proxy01:8080/v1/AUTH_2/testcontainer/etc/issue 403 Forbidden
+
+* Set Write ACL to group lovers
+-$ /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user1 -K secrete post testcontainer -w 'lovers'
+
+* Upload with user2 (allowed since in group lovers)
+$ /usr/local/bin/swift -A http://localhost:5000/v1.0 -U user2 -K secrete upload testcontainer /etc/issue.net 
+etc/issue.net
