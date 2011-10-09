@@ -24,20 +24,19 @@ class KeystoneAuth(object):
         self.admin_token = conf.get('keystone_admin_token')
 
     def __call__(self, environ, start_response):
-        self.logger.debug('Starting middleware ')
+        self.logger.debug('Initialising keystone middleware')
 
         token = environ.get('HTTP_X_AUTH_TOKEN',
                             environ.get('HTTP_X_STORAGE_TOKEN'))
-
-        memcache_client = cache_from_env(environ)
-
         if not token:
+            self.logger.debug('No token: exiting')
             environ['swift.authorize'] = self.denied_response
             return self.app(environ, start_response)
 
-        self.logger.debug('token %s ' % (token))
-        identity = None
+        self.logger.debug('Got token: %s' % (token))
 
+        identity = None
+        memcache_client = cache_from_env(environ)
         memcache_key = 'tokens/%s' % (token)
         candidate_cache = memcache_client.get(memcache_key)
         if candidate_cache:
@@ -61,7 +60,7 @@ class KeystoneAuth(object):
             environ['swift.authorize'] = self.denied_response
             return self.app(environ, start_response)
 
-        self.logger.debug("identity: %r" % (identity))
+        self.logger.debug("Using identity: %r" % (identity))
         environ['keystone.identity'] = identity
         environ['REMOTE_USER'] = identity.get('tenant')
         environ['swift.authorize'] = self.authorize
@@ -147,6 +146,8 @@ class KeystoneAuth(object):
         # Check if we have the group in the group user and allow it
         for user_group in user_groups:
             if user_group in groups:
+                self.logger.debug('user in group: %s authorizing' % \
+                                      (user_group))
                 return None
 
         return self.denied_response(req)
@@ -156,6 +157,7 @@ class KeystoneAuth(object):
         Returns a standard WSGI response callable with the status of 403 or 401
         depending on whether the REMOTE_USER is set or not.
         """
+        self.logger.debug('denying response')
         if req.remote_user:
             return HTTPForbidden(request=req)
         else:
