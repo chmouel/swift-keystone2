@@ -6,7 +6,8 @@ from urlparse import urlparse
 from webob.exc import HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
 
-from swift.common.utils import cache_from_env, get_logger, split_path
+from swift.common.utils import cache_from_env, get_logger, split_path, \
+    get_remote_client
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.bufferedhttp import http_connect_raw as http_connect
 from time import time, mktime
@@ -22,6 +23,9 @@ class KeystoneAuth(object):
         #TODO: Error out if no url
         self.keystone_url = urlparse(conf.get('keystone_url'))
         self.admin_token = conf.get('keystone_admin_token')
+        self.allowed_sync_hosts = [h.strip()
+            for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
+            if h.strip()]
 
     def __call__(self, environ, start_response):
         self.logger.debug('Initialising keystone middleware')
@@ -135,6 +139,15 @@ class KeystoneAuth(object):
             req.environ['swift_owner'] = True
             return None
 
+        if (req.environ.get('swift_sync_key') and
+            req.environ['swift_sync_key'] ==
+                req.headers.get('x-container-sync-key', None) and
+            'x-timestamp' in req.headers and
+            (req.remote_addr in self.allowed_sync_hosts or
+             get_remote_client(req) in self.allowed_sync_hosts)):
+            self.logger.debug('allowing container-sync')
+            return None
+
         # Check if Referrer allow it #TODO: check if it works
         referrers, groups = parse_acl(getattr(req, 'acl', None))
         if referrer_allowed(req.referer, referrers):
@@ -157,7 +170,6 @@ class KeystoneAuth(object):
         Returns a standard WSGI response callable with the status of 403 or 401
         depending on whether the REMOTE_USER is set or not.
         """
-        self.logger.debug('denying response')
         if req.remote_user:
             return HTTPForbidden(request=req)
         else:
