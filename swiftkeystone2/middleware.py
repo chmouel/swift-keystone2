@@ -6,9 +6,11 @@ from urlparse import urlparse
 from webob.exc import HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
 
-from swift.common.utils import get_logger, split_path
+from swift.common.utils import cache_from_env, get_logger, split_path
 from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
 from swift.common.bufferedhttp import http_connect_raw as http_connect
+from time import time, mktime
+from datetime import datetime
 
 
 class KeystoneAuth(object):
@@ -27,12 +29,32 @@ class KeystoneAuth(object):
         token = environ.get('HTTP_X_AUTH_TOKEN',
                             environ.get('HTTP_X_STORAGE_TOKEN'))
 
+        memcache_client = cache_from_env(environ)
+
         if not token:
             environ['swift.authorize'] = self.denied_response
             return self.app(environ, start_response)
 
         self.logger.debug('token %s ' % (token))
-        identity = self._keystone_validate_token(token)
+        identity = None
+
+        memcache_key = 'tokens/%s' % (token)
+        candidate_cache = memcache_client.get(memcache_key)
+        if candidate_cache:
+            expires, _identity = candidate_cache
+            if expires > time():
+                self.logger.debug('getting identity info from memcache')
+                identity = _identity
+
+        if not identity:
+            identity = self._keystone_validate_token(token)
+            if identity and memcache_client:
+                expires = identity['expires']
+                memcache_client.set(memcache_key,
+                                    (expires, identity),
+                                    timeout=expires - time())
+                ts = str(datetime.fromtimestamp(expires))
+                self.logger.debug('setting memcache expiration to %s' % ts)
 
         if not identity:
             #TODO: non authenticated access allow via refer
@@ -45,6 +67,12 @@ class KeystoneAuth(object):
         environ['swift.authorize'] = self.authorize
         environ['swift.clean_acl'] = clean_acl
         return self.app(environ, start_response)
+
+    def convert_date(self, date):
+        """ Convert datetime to unix timestamp """
+        return mktime(datetime.strptime(
+                date[:date.rfind(':')].replace('-', ''), "%Y%m%dT%H:%M",
+                ).timetuple())
 
     def _keystone_validate_token(self, claim):
         headers = {"X-Auth-Token": self.admin_token}
@@ -68,17 +96,24 @@ class KeystoneAuth(object):
 
         try:
             tenant = identity_info['access']['token']['tenant']['id']
+            expires = self.convert_date(
+                identity_info['access']['token']['expires'])
             user = identity_info['access']['user']['username']
             roles = [x['name'] for x in \
                          identity_info['access']['user']['roles']]
         except(KeyError, IndexError):
             tenant = None
             user = None
+            expires = None
             roles = []
 
+        #TODO: should handle the Nones
         identity = {'user': user,
                     'tenant': tenant,
-                    'roles': roles}
+                    'roles': roles,
+                    'expires': expires,
+                    }
+
         return identity
 
     def authorize(self, req):
