@@ -22,6 +22,7 @@ class KeystoneAuth(object):
         self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
         #TODO: Error out if no url
         self.keystone_url = urlparse(conf.get('keystone_url'))
+        self.keystone_admin_group = conf.get('keystone_admin_group', 'Admin')
         self.admin_token = conf.get('keystone_admin_token')
         self.allowed_sync_hosts = [h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
@@ -135,7 +136,7 @@ class KeystoneAuth(object):
 
         user_groups = env_identity.get('roles', [])
         #TODO: setting?
-        if 'Admin' in user_groups:
+        if self.keystone_admin_group in user_groups:
             req.environ['swift_owner'] = True
             return None
 
