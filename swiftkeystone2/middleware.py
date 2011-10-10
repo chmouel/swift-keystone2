@@ -1,3 +1,18 @@
+# Copyright (c) 2011 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import json
 
 from urllib import quote
@@ -15,6 +30,34 @@ from datetime import datetime
 
 
 class KeystoneAuth(object):
+    """
+    Keystone authentication and authorization system.
+
+    Add to your pipeline in proxy-server.conf, such as::
+
+        [pipeline:main]
+        pipeline = catch_errors cache keystone2 proxy-server
+
+    Set account auto creation to true::
+
+        [app:proxy-server]
+        account_autocreate = true
+
+    And add a keystone2 filter section, such as::
+
+        [filter:keystone2]
+        use = egg:swiftkeystone2#keystone2
+        keystone_admin_token = admin_token
+        keystone_admin_url = http://keystone_url:35357/v2.0
+        keystone_user_url = http://keystone_url:5000/v2.0
+        keystone_admin_group = Admin
+
+    This middleware handle ACL as well and allow Keystone groups to
+    map to swift ACL.
+
+    :param app: The next WSGI app in the pipeline
+    :param conf: The dict of configuration values
+    """
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
@@ -79,6 +122,9 @@ class KeystoneAuth(object):
                 ).timetuple())
 
     def _keystone_validate_token(self, claim):
+        """
+        Will take a claimed token and validate it in keystone.
+        """
         headers = {"X-Auth-Token": self.admin_token}
         conn = http_connect(self.keystone_url.hostname,
                             self.keystone_url.port, 'GET',
