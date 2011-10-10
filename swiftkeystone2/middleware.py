@@ -19,7 +19,8 @@ from urllib import quote
 from urlparse import urlparse
 
 from webob.exc import HTTPForbidden, HTTPNotFound, \
-    HTTPUnauthorized
+    HTTPUnauthorized, HTTPBadRequest
+from webob import Request
 
 from swift.common.utils import cache_from_env, get_logger, split_path, \
     get_remote_client
@@ -74,6 +75,7 @@ class KeystoneAuth(object):
     def __call__(self, environ, start_response):
         self.logger.debug('Initialising keystone middleware')
 
+        req = Request(environ)
         token = environ.get('HTTP_X_AUTH_TOKEN',
                             environ.get('HTTP_X_STORAGE_TOKEN'))
         if not token:
@@ -102,6 +104,8 @@ class KeystoneAuth(object):
                                     timeout=expires - time())
                 ts = str(datetime.fromtimestamp(expires))
                 self.logger.debug('setting memcache expiration to %s' % ts)
+            else:  # if we didn't get identity it means there was an error.
+                return HTTPBadRequest(request=req)
 
         if not identity:
             #TODO: non authenticated access allow via refer
@@ -152,10 +156,7 @@ class KeystoneAuth(object):
             roles = [x['name'] for x in \
                          identity_info['access']['user']['roles']]
         except(KeyError, IndexError):
-            tenant = None
-            user = None
-            expires = None
-            roles = []
+            return
 
         #TODO: should handle the Nones
         identity = {'user': user,
