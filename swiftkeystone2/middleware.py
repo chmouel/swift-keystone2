@@ -49,8 +49,7 @@ class KeystoneAuth(object):
         [filter:keystone2]
         use = egg:swiftkeystone2#keystone2
         keystone_admin_token = admin_token
-        keystone_admin_url = http://keystone_url:35357/v2.0
-        keystone_user_url = http://keystone_url:5000/v2.0
+        keystone_url = http://keystone_url:35357/v2.0
         keystone_admin_group = Admin
 
     This middleware handle ACL as well and allow Keystone groups to
