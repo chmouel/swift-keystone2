@@ -149,14 +149,27 @@ class KeystoneAuth(object):
         identity_info = json.loads(data)
 
         try:
-            tenant = identity_info['access']['token']['tenant']['id']
-            expires = self.convert_date(
-                identity_info['access']['token']['expires'])
-            user = identity_info['access']['user']['username']
-            roles = [x['name'] for x in \
-                         identity_info['access']['user']['roles']]
+            # Hack to make keystone before format change (~diablo release)
+            # works.  on old keystone tenant_id == username not an actual
+            # id so using that.  This will screw upgrades but people using
+            # keystone pre-diablo are probably some very agile gymnast
+            # anyway.
+            if identity_info.keys()[0] == "auth":
+                expires = self.convert_date(
+                    identity_info["auth"]['token']['expires'])
+                user = identity_info["auth"]['user']['username']
+                tenant = identity_info["auth"]['token']['tenantId']
+                roles = [x['roleId'] for x in \
+                             identity_info["auth"]['user']['roleRefs']]
+            else:
+                tenant = identity_info["access"]['token']['tenant']['id']
+                expires = self.convert_date(
+                    identity_info["access"]['token']['expires'])
+                user = identity_info["access"]['user']['username']
+                roles = [x['name'] for x in \
+                             identity_info["access"]['user']['roles']]
         except(KeyError, IndexError):
-            return
+            raise
 
         #TODO: should handle the Nones
         identity = {'user': user,
@@ -165,6 +178,7 @@ class KeystoneAuth(object):
                     'expires': expires,
                     }
 
+        self.logger.debug("returning: %r" % (identity))
         return identity
 
     def authorize(self, req):
@@ -178,7 +192,8 @@ class KeystoneAuth(object):
             return HTTPNotFound(request=req)
 
         if account != '%s_%s' % (self.reseller_prefix, tenant):
-            self.log.debug('tenant mismatch')
+            self.logger.debug('tenant mismatch: %s != %s_%s' % \
+                                  (account, self.reseller_prefix, tenant))
             return self.denied_response(req)
 
         user_groups = env_identity.get('roles', [])
